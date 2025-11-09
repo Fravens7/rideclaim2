@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extractor de Total LKR de Múltiples Recibos Uber</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #e9f7fe;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .upload-label {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .upload-label:hover {
+            background-color: #0056b3;
+        }
+        .file-list {
+            margin-top: 20px;
+            display: none;
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 5px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .file-item.processing {
+            background-color: #e9f7fe;
+        }
+        .file-item.success {
+            background-color: #d4edda;
+        }
+        .file-item.error {
+            background-color: #f8d7da;
+        }
+        .file-name {
+            font-weight: bold;
+            flex-grow: 1;
+        }
+        .file-status {
+            margin-left: 10px;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        .status-processing {
+            background-color: #cce5ff;
+            color: #004085;
+        }
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .file-total {
+            margin-left: 10px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .results-container {
+            margin-top: 30px;
+            display: none;
+        }
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .results-table th, .results-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .results-table th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        .results-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        .total-row {
+            font-weight: bold;
+            background-color: #e9f7fe;
+        }
+        .view-details-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+        .view-details-btn:hover {
+            background-color: #0056b3;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 700px;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: black;
+        }
+        .extracted-text {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .clear-btn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .clear-btn:hover {
+            background-color: #c82333;
+        }
+        .summary {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9f7fe;
+            border-radius: 5px;
+            text-align: right;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Extractor de Total LKR de Múltiples Recibos Uber</h1>
+        
+        <div class="upload-area" id="uploadArea">
+            <label for="pdfFiles" class="upload-label">Seleccionar PDFs</label>
+            <p>o arrastra y suelta los archivos aquí</p>
+            <input type="file" id="pdfFiles" accept="application/pdf" multiple>
+        </div>
+        
+        <div class="file-list" id="fileList"></div>
+        
+        <div class="results-container" id="resultsContainer">
+            <h2>Resultados</h2>
+            <table class="results-table" id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>Archivo</th>
+                        <th>Total LKR</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody"></tbody>
+            </table>
+            <div class="summary" id="summary"></div>
+            <button class="clear-btn" id="clearBtn">Limpiar resultados</button>
+        </div>
+    </div>
+
+    <!-- Modal para ver detalles -->
+    <div id="detailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Detalles del archivo</h2>
+            <div class="extracted-text" id="modalExtractedText"></div>
+        </div>
+    </div>
+
+    <script>
+        // Configurar PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+        
+        const uploadArea = document.getElementById('uploadArea');
+        const pdfFiles = document.getElementById('pdfFiles');
+        const fileList = document.getElementById('fileList');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultsBody = document.getElementById('resultsBody');
+        const summary = document.getElementById('summary');
+        const clearBtn = document.getElementById('clearBtn');
+        
+        // Modal
+        const modal = document.getElementById('detailsModal');
+        const modalExtractedText = document.getElementById('modalExtractedText');
+        const closeBtn = document.getElementsByClassName('close')[0];
+        
+        // Almacenamiento de resultados
+        let fileResults = [];
+        
+        // Evento para el input de archivos
+        pdfFiles.addEventListener('change', handleFileSelect);
+        
+        // Eventos para arrastrar y soltar
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            if (e.dataTransfer.files.length) {
+                handleFiles(e.dataTransfer.files);
+            }
+        });
+        
+        // Evento para cerrar modal
+        closeBtn.onclick = function() {
+            modal.style.display = 'none';
+        }
+        
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        // Evento para limpiar resultados
+        clearBtn.addEventListener('click', function() {
+            fileResults = [];
+            fileList.innerHTML = '';
+            fileList.style.display = 'none';
+            resultsContainer.style.display = 'none';
+            resultsBody.innerHTML = '';
+            summary.innerHTML = '';
+        });
+        
+        function handleFileSelect(e) {
+            if (e.target.files.length) {
+                handleFiles(e.target.files);
+            }
+        }
+        
+        function handleFiles(files) {
+            // Filtrar solo archivos PDF
+            const pdfFiles = Array.from(files).filter(file => file.type === 'application/pdf');
+            
+            if (pdfFiles.length === 0) {
+                alert('Por favor, selecciona al menos un archivo PDF válido.');
+                return;
+            }
+            
+            // Mostrar lista de archivos
+            fileList.style.display = 'block';
+            fileList.innerHTML = '';
+            
+            // Procesar cada archivo
+            pdfFiles.forEach(file => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.id = `file-${file.name.replace(/\s/g, '-')}`;
+                
+                const fileName = document.createElement('div');
+                fileName.className = 'file-name';
+                fileName.textContent = file.name;
+                
+                const fileStatus = document.createElement('div');
+                fileStatus.className = 'file-status status-processing';
+                fileStatus.textContent = 'Procesando...';
+                
+                fileItem.appendChild(fileName);
+                fileItem.appendChild(fileStatus);
+                fileList.appendChild(fileItem);
+                
+                // Procesar el archivo
+                processFile(file, fileItem);
+            });
+        }
+        
+        function processFile(file, fileItem) {
+            const fileReader = new FileReader();
+            
+            fileReader.onload = function() {
+                const typedarray = new Uint8Array(this.result);
+                
+                pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
+                    let totalPages = pdf.numPages;
+                    let fullText = '';
+                    
+                    // Procesar todas las páginas
+                    let pagePromises = [];
+                    for (let i = 1; i <= totalPages; i++) {
+                        pagePromises.push(
+                            pdf.getPage(i).then(function(page) {
+                                return page.getTextContent().then(function(textContent) {
+                                    let pageText = '';
+                                    textContent.items.forEach(function(item) {
+                                        pageText += item.str + ' ';
+                                    });
+                                    return pageText;
+                                });
+                            })
+                        );
+                    }
+                    
+                    Promise.all(pagePromises).then(function(pageTexts) {
+                        pageTexts.forEach(function(text) {
+                            fullText += text + '\n';
+                        });
+                        
+                        // Buscar el total en LKR
+                        const totalMatch = fullText.match(/Total\s+([\d,.]+)\s+LKR/i);
+                        
+                        const fileStatus = fileItem.querySelector('.file-status');
+                        
+                        if (totalMatch) {
+                            const total = totalMatch[1];
+                            
+                            // Actualizar estado del archivo
+                            fileItem.className = 'file-item success';
+                            fileStatus.className = 'file-status status-success';
+                            fileStatus.textContent = 'Completado';
+                            
+                            // Añadir total al elemento de archivo
+                            const fileTotal = document.createElement('div');
+                            fileTotal.className = 'file-total';
+                            fileTotal.textContent = `${total} LKR`;
+                            fileItem.appendChild(fileTotal);
+                            
+                            // Guardar resultado
+                            fileResults.push({
+                                name: file.name,
+                                total: total,
+                                text: fullText
+                            });
+                            
+                            // Actualizar tabla de resultados
+                            updateResultsTable();
+                        } else {
+                            // Actualizar estado del archivo
+                            fileItem.className = 'file-item error';
+                            fileStatus.className = 'file-status status-error';
+                            fileStatus.textContent = 'Error: No se encontró total';
+                            
+                            // Guardar resultado sin total
+                            fileResults.push({
+                                name: file.name,
+                                total: null,
+                                text: fullText
+                            });
+                            
+                            // Actualizar tabla de resultados
+                            updateResultsTable();
+                        }
+                    });
+                }).catch(function(error) {
+                    console.error('Error al procesar el PDF:', error);
+                    
+                    // Actualizar estado del archivo
+                    fileItem.className = 'file-item error';
+                    const fileStatus = fileItem.querySelector('.file-status');
+                    fileStatus.className = 'file-status status-error';
+                    fileStatus.textContent = 'Error al procesar';
+                });
+            };
+            
+            fileReader.readAsArrayBuffer(file);
+        }
+        
+        function updateResultsTable() {
+            resultsContainer.style.display = 'block';
+            resultsBody.innerHTML = '';
+            
+            let totalSum = 0;
+            let validCount = 0;
+            
+            fileResults.forEach((result, index) => {
+                const row = document.createElement('tr');
+                
+                const nameCell = document.createElement('td');
+                nameCell.textContent = result.name;
+                
+                const totalCell = document.createElement('td');
+                totalCell.textContent = result.total ? `${result.total} LKR` : 'No encontrado';
+                
+                const actionsCell = document.createElement('td');
+                const viewBtn = document.createElement('button');
+                viewBtn.className = 'view-details-btn';
+                viewBtn.textContent = 'Ver detalles';
+                viewBtn.onclick = function() {
+                    modalExtractedText.textContent = result.text;
+                    modal.style.display = 'block';
+                };
+                actionsCell.appendChild(viewBtn);
+                
+                row.appendChild(nameCell);
+                row.appendChild(totalCell);
+                row.appendChild(actionsCell);
+                
+                resultsBody.appendChild(row);
+                
+                if (result.total) {
+                    totalSum += parseFloat(result.total.replace(',', '.'));
+                    validCount++;
+                }
+            });
+            
+            // Actualizar resumen
+            summary.innerHTML = `
+                <p>Total de archivos procesados: ${fileResults.length}</p>
+                <p>Archivos con total encontrado: ${validCount}</p>
+                <p>Suma total de LKR: ${totalSum.toFixed(2)} LKR</p>
+            `;
+        }
+    </script>
+</body>
+</html>
