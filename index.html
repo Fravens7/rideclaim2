@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Extractor y Validador de Viajes Uber</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
+          crossorigin=""/>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <style>
         body {
@@ -23,25 +29,6 @@
             color: #333;
             text-align: center;
             margin-bottom: 30px;
-        }
-        .validation-info {
-            background-color: #e9f7fe;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        .validation-info h3 {
-            margin-top: 0;
-            color: #007bff;
-        }
-        .validation-info p {
-            margin-bottom: 10px;
-        }
-        .validation-info code {
-            background-color: #f8f9fa;
-            padding: 2px 5px;
-            border-radius: 3px;
-            font-family: monospace;
         }
         .upload-area {
             border: 2px dashed #ccc;
@@ -129,6 +116,20 @@
             margin-left: 10px;
             font-weight: bold;
             color: #007bff;
+        }
+        /* CAMBIO CLAVE: Quitado display: none para evitar el problema de renderizado */
+        .map-container {
+            height: 400px;
+            margin-top: 20px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+            /* display: none; <-- COMENTADO O ELIMINADO */
+        }
+        .map-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
         }
         .results-container {
             margin-top: 30px;
@@ -251,16 +252,6 @@
     <div class="container">
         <h1>Extractor y Validador de Viajes Uber</h1>
         
-        <div class="validation-info">
-            <h3>Criterios de Validación</h3>
-            <p>Un viaje se considera válido cuando el origen y destino cumplen con las siguientes condiciones:</p>
-            <ul>
-                <li><strong>Origen (Casa):</strong> La dirección debe <strong>comenzar con</strong> <code>"43"</code>.</li>
-                <li><strong>Destino (Oficina):</strong> La dirección debe <strong>comenzar con</strong> <code>"324"</code> <strong>O</strong> <strong>contener</strong> <code>"Havelock"</code> <strong>O</strong> <strong>contener</strong> <code>"Mireka Tower"</code>.</li>
-            </ul>
-            <p>El sistema valida tanto los viajes de Casa a Oficina como de Oficina a Casa.</p>
-        </div>
-        
         <div class="upload-area" id="uploadArea">
             <label for="pdfFiles" class="upload-label">Seleccionar PDFs</label>
             <p>o arrastra y suelta los archivos aquí</p>
@@ -268,6 +259,9 @@
         </div>
         
         <div class="file-list" id="fileList"></div>
+        
+        <!-- Contenedor para el mapa -->
+        <div id="map-container" class="map-container"></div>
         
         <div class="results-container" id="resultsContainer">
             <h2>Resultados</h2>
@@ -298,9 +292,20 @@
         </div>
     </div>
 
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" 
+            crossorigin=""></script>
+
     <script>
         // Configurar PDF.js
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+        
+        // --- COORDENADAS ESTÁTICAS (SOLUCIÓN DEFINITIVA) ---
+        const staticLocations = {
+            home: { lat: 6.89535, lng: 79.85766 },    // 43 Lauries Rd
+            office: { lat: 6.91379, lng: 79.86533 }   // 324 Havelock Rd
+        };
         
         // Elementos del DOM
         const uploadArea = document.getElementById('uploadArea');
@@ -310,6 +315,7 @@
         const resultsBody = document.getElementById('resultsBody');
         const summary = document.getElementById('summary');
         const clearBtn = document.getElementById('clearBtn');
+        const mapContainer = document.getElementById('map-container');
         
         // Modal
         const modal = document.getElementById('detailsModal');
@@ -318,6 +324,7 @@
         
         // Almacenamiento de resultados
         let fileResults = [];
+        let map = null; // Variable para el mapa de Leaflet
         
         // Eventos
         pdfFiles.addEventListener('change', handleFileSelect);
@@ -357,6 +364,12 @@
             resultsContainer.style.display = 'none';
             resultsBody.innerHTML = '';
             summary.innerHTML = '';
+            // Limpiar el contenedor del mapa en lugar de ocultarlo
+            mapContainer.innerHTML = '';
+            if (map) {
+                map.remove();
+                map = null;
+            }
         });
         
         function handleFileSelect(e) {
@@ -366,7 +379,6 @@
         }
         
         function handleFiles(files) {
-            // Filtrar solo archivos PDF
             const pdfFiles = Array.from(files).filter(file => file.type === 'application/pdf');
             
             if (pdfFiles.length === 0) {
@@ -374,11 +386,9 @@
                 return;
             }
             
-            // Mostrar lista de archivos
             fileList.style.display = 'block';
             fileList.innerHTML = '';
             
-            // Procesar cada archivo
             pdfFiles.forEach(file => {
                 const fileItem = document.createElement('div');
                 fileItem.className = 'file-item';
@@ -396,7 +406,6 @@
                 fileItem.appendChild(fileStatus);
                 fileList.appendChild(fileItem);
                 
-                // Procesar el archivo
                 processFile(file, fileItem);
             });
         }
@@ -411,7 +420,6 @@
                     let totalPages = pdf.numPages;
                     let fullText = '';
                     
-                    // Procesar todas las páginas
                     let pagePromises = [];
                     for (let i = 1; i <= totalPages; i++) {
                         pagePromises.push(
@@ -432,43 +440,38 @@
                             fullText += text + '\n';
                         });
                         
-                        // Extraer información del viaje
                         const tripInfo = extractTripInfo(fullText);
-                        
-                        // Buscar el total en LKR
                         const totalMatch = fullText.match(/Total\s+([\d,.]+)\s+LKR/i);
                         const total = totalMatch ? totalMatch[1] : null;
-                        
-                        // Validar el viaje
                         const validationResult = validateTrip(tripInfo);
                         
                         const fileStatus = fileItem.querySelector('.file-status');
                         
                         if (total) {
-                            // Añadir total al elemento de archivo
                             const fileTotal = document.createElement('div');
                             fileTotal.className = 'file-total';
                             fileTotal.textContent = `${total} LKR`;
                             fileItem.appendChild(fileTotal);
                             
-                            // Actualizar estado del archivo según validación
                             if (validationResult.isValid) {
                                 fileItem.className = 'file-item success';
                                 fileStatus.className = 'file-status status-success';
                                 fileStatus.textContent = 'Válido';
+                                displayMap(file.name, validationResult.direction);
                             } else {
                                 fileItem.className = 'file-item invalid';
                                 fileStatus.className = 'file-status status-invalid';
                                 fileStatus.textContent = 'No válido';
+                                // Ocultar el mapa si no es válido
+                                mapContainer.style.display = 'none';
                             }
                         } else {
-                            // Actualizar estado del archivo
                             fileItem.className = 'file-item error';
                             fileStatus.className = 'file-status status-error';
                             fileStatus.textContent = 'Error: No se encontró total';
+                            mapContainer.style.display = 'none';
                         }
                         
-                        // Guardar resultado
                         fileResults.push({
                             name: file.name,
                             total: total,
@@ -479,17 +482,15 @@
                             text: fullText
                         });
                         
-                        // Actualizar tabla de resultados
                         updateResultsTable();
                     });
                 }).catch(function(error) {
                     console.error('Error al procesar el PDF:', error);
-                    
-                    // Actualizar estado del archivo
                     fileItem.className = 'file-item error';
                     const fileStatus = fileItem.querySelector('.file-status');
                     fileStatus.className = 'file-status status-error';
                     fileStatus.textContent = 'Error al procesar';
+                    mapContainer.style.display = 'none';
                 });
             };
             
@@ -497,11 +498,9 @@
         }
         
         function extractTripInfo(text) {
-            // Mejorar la extracción de direcciones del texto
             let origin = null;
             let destination = null;
             
-            // Buscar patrones de hora seguidos de dirección
             const timePattern = /(\d{1,2}:\d{2})\s+([a-zA-Z0-9\s,]+Sri Lanka)/g;
             let match;
             const addresses = [];
@@ -517,7 +516,6 @@
                 origin = addresses[0].address;
                 destination = addresses[1].address;
             } else {
-                // Enfoque alternativo si no se encuentran direcciones después de horas
                 const addressPattern = /([a-zA-Z0-9\s,]+Sri Lanka)/g;
                 const allAddresses = [];
                 
@@ -531,24 +529,17 @@
                 }
             }
             
-            return {
-                origin: origin,
-                destination: destination
-            };
+            return { origin, destination };
         }
         
         function validateTrip(tripInfo) {
             if (!tripInfo.origin || !tripInfo.destination) {
-                return {
-                    isValid: false,
-                    details: 'No se pudieron extraer las direcciones de origen y destino.'
-                };
+                return { isValid: false, details: 'No se pudieron extraer las direcciones.', direction: null };
             }
             
             const originText = tripInfo.origin.trim();
             const destinationText = tripInfo.destination.trim().toLowerCase();
             
-            // Lógica de validación para Casa y Oficina
             const isHome = (address) => address.startsWith('43');
             const isOffice = (address) => {
                 const addr = address.toLowerCase();
@@ -557,30 +548,78 @@
             
             const isOriginHome = isHome(originText);
             const isDestinationOffice = isOffice(destinationText);
-            
             const isOriginOffice = isOffice(originText);
             const isDestinationHome = isHome(destinationText);
             
-            // Validar ruta Casa -> Oficina
             if (isOriginHome && isDestinationOffice) {
-                return {
-                    isValid: true,
-                    details: 'Válido: Ruta Casa -> Oficina.'
-                };
+                return { isValid: true, details: 'Válido: Ruta Casa -> Oficina.', direction: 'home-to-office' };
             }
             
-            // Validar ruta Oficina -> Casa
             if (isOriginOffice && isDestinationHome) {
-                return {
-                    isValid: true,
-                    details: 'Válido: Ruta Oficina -> Casa.'
-                };
+                return { isValid: true, details: 'Válido: Ruta Oficina -> Casa.', direction: 'office-to-home' };
             }
             
-            return {
-                isValid: false,
-                details: `No válido: El origen "${originText.substring(0, 40)}..." y destino "${destinationText.substring(0, 40)}..." no cumplen con las reglas de Casa/Oficina.`
-            };
+            return { isValid: false, details: 'No válido: Las direcciones no cumplen las reglas.', direction: null };
+        }
+        
+        function displayMap(fileName, direction) {
+            // Asegurarse de que el contenedor sea visible
+            mapContainer.style.display = 'block';
+
+            let mapTitle = document.querySelector('.map-title');
+            if (!mapTitle) {
+                mapTitle = document.createElement('div');
+                mapTitle.className = 'map-title';
+                mapContainer.prepend(mapTitle);
+            }
+            mapTitle.textContent = `Mapa del Viaje: ${fileName}`;
+
+            let originCoords, destCoords;
+            if (direction === 'home-to-office') {
+                originCoords = staticLocations.home;
+                destCoords = staticLocations.office;
+            } else { // office-to-home
+                originCoords = staticLocations.office;
+                destCoords = staticLocations.home;
+            }
+
+            // Inicializar el mapa si no existe
+            if (!map) {
+                map = L.map('map-container').setView([6.9, 79.86], 13); // Centrado en Colombo
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(map);
+            }
+
+            // Limpiar capas anteriores
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            // Añadir marcadores
+            L.marker(originCoords).addTo(map).bindPopup('Origen').openPopup();
+            L.marker(destCoords).addTo(map).bindPopup('Destino');
+
+            // Determinar el color de la línea
+            const lineColor = (direction === 'home-to-office') ? 'blue' : 'green';
+
+            // Dibujar la línea entre los dos puntos
+            const route = L.polyline([originCoords, destCoords], {
+                color: lineColor,
+                weight: 5,
+                opacity: 0.7
+            }).addTo(map);
+
+            // Ajustar el mapa para que se vean todos los puntos
+            const group = new L.featureGroup([L.marker(originCoords), L.marker(destCoords)]);
+            map.fitBounds(group.getBounds().pad(0.1));
+
+            // --- SOLUCIÓN CLAVE: Forzar a Leaflet a redibujar ---
+            setTimeout(() => {
+                map.invalidateSize();
+            }, 0);
         }
         
         function updateResultsTable() {
@@ -646,7 +685,6 @@
                 }
             });
             
-            // Actualizar resumen
             summary.innerHTML = `
                 <p>Total de archivos procesados: ${fileResults.length}</p>
                 <p>Viajes válidos: ${validCount}</p>
